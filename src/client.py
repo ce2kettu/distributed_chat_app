@@ -2,97 +2,166 @@ import socket
 import config
 import threading
 
-def menu():
-    print("Available options:")
-    print("1) Create a channel")
-    print("2) Join a channel")
-    print("3) Send a private message")
-    print("4) Connect to a server")
-    print("5) Disconnect from the server")
-    print("6) Exit")
 
-    try:
-        return int(input("Your choice: "))
-    except ValueError:
-        return -1;
+class ClientApp:
+    def __init__(self, nickname, host):
+        self.nickname = nickname
+        self.host = host
+        self.isConnected = False
+        self.socket = None
+        self.runThreads = True
+
+    def establish_server_connection(self):
+        if (self.isConnected):
+            return
+
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        print("Connecting to the server...")
+        try:
+            self.socket.connect((self.host, config.PORT))
+            print("Connected.")
+            self.isConnected = True
+        except socket.error:
+            print("Could not connect to the server.")
+            self.isConnected = False
+
+    def create_messaging_thread(self):
+        if (self.isConnected):
+            threading.Thread(target=self.server_handler, args=()).start()
+
+    def connect(self):
+        if (not self.isConnected):
+            self.runThreads = True
+            app.establish_server_connection()
+            app.create_messaging_thread()
+
+    def disconnect(self):
+        if (self.isConnected):
+            self.isConnected = False
+            self.runThreads = False
+            self.socket.close()
+
+    def send_packet(self, value):
+        if (self.isConnected):
+            self.socket.send(value.encode(config.ENCODING))
+
+    def send_command(self, params):
+        self.send_packet(";".join(params))
+
+    def send_message(self, message):
+        self.send_packet(message)
+
+    def create_channel(self, channelName):
+        self.send_command([config.CREATE_CHANNEL_CMD, channelName])
+
+    def join_channel(self, channelName):
+        self.send_command([config.JOIN_CHANNEL_CMD, channelName])
+
+    def direct_message(self, contents):
+        parts = contents.split(" ")
+
+        if (len(parts) > 1):
+            targetUser = parts[0]
+            message = " ".join(parts[1:])
+            self.send_command([config.DIRECT_MESSAGE_CMD, targetUser, message])
+        else:
+            print("Usage: !pm [user] [message]")
+
+    def change_name(self, newName):
+        newName = config.format_string(newName)
+        self.send_command([config.CHANGE_NICKNAME_CMD, newName])
+        self.nickname = newName
+
+    def server_handler(self):
+        while self.runThreads:
+            try:
+                data = self.socket.recv(
+                    config.BUFFER_SIZE).decode(config.ENCODING)
+                if (data == config.CHANGE_NICKNAME_CMD):
+                    self.socket.send(nickname.encode(config.ENCODING))
+                else:
+                    print(data, end="")
+            except socket.error as e:
+                print("Disconnected from the server.")
+                self.socket.close()
+                self.isConnected = False
+                break
+
+
+def help_menu():
+    print("Available commands:")
+    print("!disconnect")
+    print("!connect")
+    print("!changename")
+    print("!pm [user] [message]")
+    print("!join [channel name]")
+    print("!create [channel name]")
+    print("!exit")
+    print("!help")
+
 
 def query_server_address():
     return input("Enter server IP address: ")
 
-def establish_server_connection(host):
-    conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    print("Connecting to the server...")
-    try:
-        conn.connect((host, config.PORT))
-        return conn
-    except socket.error:
-        return None
+# parse command from input if exists - e.g., !join [channel]
+def parse_command(value):
+    cmd = ("chat", value)
 
-def update_connection_status(socket):
-    if (socket == None):
-        print("Connection failed.")
-        return False
-    else:
-        print("Connection successful.")
-        return True
+    if (len(value) > 0 and value[0] == "!"):
+        value = value[1:]
+        parts = value.split(" ")
 
-def create_messaging_thread(socket):
-        threading.Thread(target=server_handler, args=(socket,)).start()
+        if (len(parts) > 0):
+            command = parts[0]
+            contents = " ".join(parts[1:])
+            cmd = (command, contents)
 
-def server_handler(socket):
-    while True:
-        try:
-            data = socket.recv(config.BUFFER_SIZE).decode(config.ENCODING)
-            if (data == config.CHANGE_NICKNAME_CMD):
-                socket.send(nickname.encode(config.ENCODING))
-            else:
-                print(data)
-        except socket.error as e:
-            print(f"[!] {e}")
-            print("Closed connection due to an error.")
-            socket.close()
-            break
+    return cmd
+
 
 if __name__ == "__main__":
-    nickname = input("Enter your nickname: ")
+    help_menu()
+    nickname = config.format_string(input("Enter your nickname: "))
     host = query_server_address()
-    socket = establish_server_connection(host)
-    isConnected = update_connection_status(socket)
+    app = ClientApp(nickname, host)
+    app.connect()
 
-    if (isConnected):
-        create_messaging_thread(socket)
+    try:
+        while True:
+            (command, contents) = parse_command(input())
 
-    while True:
-        choice = menu()
-        print()
-
-        match choice:
-            case 1:
-                print("hey")
-            case 2:
-                print("hey")
-            case 3:
-                print("hey")
-            case 4:
-                if not isConnected:
-                    host = query_server_address()
-                    socket = establish_server_connection(host)
-                    isConnected = update_connection_status(socket)
-
-                    if (isConnected):
-                        create_messaging_thread(socket)
-                else:
-                    print("Already connected to a server.")
-            case 5:
-                if isConnected:
-                    socket.close()
-                    print("Disconnected from the server.")
-                else:
-                    print("Not connected to a server.")
-            case 6:
-                print("Exiting...")
-                break
-            case _:
-                print("Invalid option")
-
+            match command:
+                case "chat":
+                    app.send_message(contents)
+                case "connect":
+                    if (not app.isConnected):
+                        host = query_server_address()
+                        app.host = host
+                        app.connect()
+                    else:
+                        print("Already connected to a server.")
+                case "disconnect":
+                    if (app.isConnected):
+                        app.disconnect()
+                    else:
+                        print("Not connected to a server.")
+                case "create":
+                    app.create_channel(contents)
+                case "join":
+                    app.join_channel(contents)
+                case "pm":
+                    app.direct_message(contents)
+                case "changename":
+                    app.change_name(contents)
+                case "help":
+                    help_menu()
+                case "exit":
+                    print("Exiting...")
+                    app.disconnect()
+                    break
+                case _:
+                    print("Invalid option")
+    except KeyboardInterrupt:
+        app.disconnect()
+        print("[i] Exiting...")
