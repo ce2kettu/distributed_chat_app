@@ -78,7 +78,7 @@ class ClientApp:
                 data = self.socket.recv(
                     config.BUFFER_SIZE).decode(config.ENCODING)
                 if (data == config.CHANGE_NICKNAME_CMD):
-                    self.socket.send(nickname.encode(config.ENCODING))
+                    self.socket.send(self.nickname.encode(config.ENCODING))
                 else:
                     print(data, end="")
             except socket.error as e:
